@@ -5,5 +5,5 @@ WriteMakefile(
     'NAME'	=> 'B::Graph',
     'VERSION_FROM' => 'Graph.pm', # finds $VERSION
     'dist' => {COMPRESS => 'gzip -9', SUFFIX => 'gz'},
-    'PREREQ_PM' => {'B' => 0},
+    'PREREQ_PM' => {'B' => 0, 'B::Asmdata' => 0},
 );

@@ -3,7 +3,7 @@
 # This program is free software; you can redistribute and/or modifiy it
 # under the same terms as Perl itself.
 package B::Graph;
-$VERSION = "0.51";
+$VERSION = "0.52_000001";
 
 use 5.004; # Some 5.003_??s might work; most recently tested w/5.005
 use B qw(class main_start main_root main_cv sv_undef svref_2object ppname);
@@ -243,52 +243,89 @@ sub op_flags {
 
 sub op_common {
     my($op) = @_;
+    my $class_op = class($op);
     if ($style) {
 	node($op->next->graph) if ad($op->next);
     } else {
-	if ($op->flags & 4 and class($op) ne "OP") { # OPf_KIDS
+
+	if ( $class_op !~ qr{^?:OP|PADLIST$} && $op->flags & 4) { # OPf_KIDS
 	    my $kid;
 	    for ($kid = $op->first; $$kid; $kid = $kid->sibling) {
 		node($kid->graph);
 	    }
 	}
     }
-    my($n) = substr(ppname($op->type), 3);
-    my($null) = $n eq "null";
-    my(@targ);
-    if ($null or !$op->targ) {
-	@targ = ();
-    } elsif ($op->targ) {
-	if ($targlinks and $padnames[$op->targ]) {
-	    @targ = ['link', 'targ', $padnames[$op->targ], 3];
-	} else {
-	    @targ = ['val', 'targ', $op->targ];
-	}
+
+    my ( $null, $n );
+    my @targ;
+    if ( $class_op ne 'PADLIST' ) {
+	    ($n) = substr(ppname($op->type), 3);
+	    $null = $n eq "null";
+	    if ( !$null and $op->targ) {
+			if ($targlinks and $padnames[$op->targ]) {
+			    @targ = ['link', 'targ', $padnames[$op->targ], 3];
+			} else {
+			    @targ = ['val', 'targ', $op->targ];
+			}
+	    }
     }
-    return (
+    
+    my @common = (
 	    ['title' => $$op],
 	    ['color' => {'OP' => 0, 'UNOP' => 1, 'BINOP' => 2,
 			 'LOGOP' => 3, 'CONDOP' => 4, 'LISTOP' => 5,
 			 'PMOP' => 6, 'COP' => 7, 'SVOP' => 8,
 			 'PVOP' => 9, 'GVOP' => 10,
-			 'LOOP' => 12}->{class($op)} || 0],
-	    ['text', join("", $n, " (", class($op), ")")],
+			 'LOOP' => 12}->{$class_op} || 0],
+	    ['text', join("", $n, " (", $class_op, ")")],
 	    ($null ? ['text', " was " . substr(ppname($op->targ), 3)] : ()),
 	    ($addrs ? ['text', sprintf("%x", $$op)] : ()),
-	    ($types ? ['val', "type", $op->type] : ()),
+	    ($types ? ['val', "type", $op->type] : ()) 
+	);
+	
+	if ( $class_op ne 'PADLIST' ) {
+	    push @common,
 	    ['sval', "flags", op_flags($op->flags)],
 	    ['link', "next", ad($op->next), 2 + 3*($n eq "cond_expr")],
 	    ['link', "sibling", ad($op->sibling), 1],
 	    @targ,
 	    ($seqs ? ['val', "seq", $op->seq] : ()),
-	    ['val', "private", $op->private],
-	    );
+	    ['val', "private", $op->private];
+	}    
+
+   	return @common;
 }
 
 sub B::OP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     return op_common($op);
+}
+
+# pad.h:34:struct padlist {
+# pad.h-35-    SSize_t    xpadl_max;      /* max index for which array has space */
+# pad.h-36-    union {
+# pad.h-37-       PAD **  xpadlarr_alloc; /* Pointer to beginning of array of AVs.
+# pad.h-38-                                  index 0 is a padnamelist *          */
+# pad.h-39-       struct {
+# pad.h-40-           PADNAMELIST * padnl;
+# pad.h-41-           PAD * pad_1;        /* this slice of PAD * array always alloced */
+# pad.h-42-           PAD * pad_2;        /* maybe unalloced */
+# pad.h-43-       } * xpadlarr_dbg;       /* for use with a C debugger only */
+# pad.h-44-    } xpadl_arr;
+# pad.h-45-    U32                xpadl_id;       /* Semi-unique ID, shared between clones */
+# pad.h-46-    U32                xpadl_outid;    /* ID of outer pad */
+# pad.h-47-};
+
+sub B::PADLIST::graph {
+    my ($op) = @_;
+    return if $nodes{$$op}++;
+    my(@l) = op_common($op);
+    #use Data::Dumper;
+    #print Dumper \%B::PADLIST::;
+    #push @l, ['xpadl_max', "(max index)", $op->MAX, 0];
+
+    return @l;
 }
 
 sub B::UNOP::graph {
@@ -556,7 +593,8 @@ sub B::PV::graph {
     my ($sv) = @_;
     return unless $dump_svs;
     return if $nodes{$$sv}++;
-    return pv_common($sv);
+	return pv_common($sv);
+	#return (sv_common($sv), ['val', 'PV', $sv->as_string]);
 }
 
 sub B::IV::graph {
